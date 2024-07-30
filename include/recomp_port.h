@@ -40,6 +40,12 @@ namespace RecompPort {
         uint32_t value;
     };
 
+    struct FunctionHook {
+        std::string func_name;
+        int32_t before_vram;
+        std::string text;
+    };
+
     struct FunctionSize {
         std::string func_name;
         uint32_t size_bytes;
@@ -62,15 +68,20 @@ namespace RecompPort {
         bool uses_mips3_float_mode;
         bool single_file_output;
         bool use_absolute_symbols;
+        bool unpaired_lo16_warnings;
         std::filesystem::path elf_path;
         std::filesystem::path symbols_file_path;
+        std::filesystem::path func_reference_syms_file_path;
+        std::vector<std::filesystem::path> data_reference_syms_file_paths;
         std::filesystem::path rom_file_path;
         std::filesystem::path output_func_path;
         std::filesystem::path relocatable_sections_path;
+        std::filesystem::path output_binary_path;
         std::vector<std::string> stubbed_funcs;
         std::vector<std::string> ignored_funcs;
         DeclaredFunctionMap declared_funcs;
         std::vector<InstructionPatch> instruction_patches;
+        std::vector<FunctionHook> function_hooks;
         std::vector<FunctionSize> manual_func_sizes;
         std::vector<ManualFunction> manual_functions;
         std::string bss_section_suffix;
@@ -110,6 +121,7 @@ namespace RecompPort {
         bool ignored;
         bool reimplemented;
         bool stubbed;
+        std::unordered_map<int32_t, std::string> function_hooks;
 
         Function(uint32_t vram, uint32_t rom, std::vector<uint32_t> words, std::string name, ELFIO::Elf_Half section_index, bool ignored = false, bool reimplemented = false, bool stubbed = false)
                 : vram(vram), rom(rom), words(std::move(words)), name(std::move(name)), section_index(section_index), ignored(ignored), reimplemented(reimplemented), stubbed(stubbed) {}
@@ -129,12 +141,15 @@ namespace RecompPort {
 
     struct Reloc {
         uint32_t address;
-        uint32_t target_address;
+        uint32_t section_offset;
         uint32_t symbol_index;
         uint32_t target_section;
         RelocType type;
+        bool reference_symbol;
     };
 
+    constexpr uint16_t SectionSelf = (uint16_t)-1;
+    constexpr uint16_t SectionAbsolute = (uint16_t)-2;
     struct Section {
         ELFIO::Elf_Xword rom_addr = 0;
         ELFIO::Elf64_Addr ram_addr = 0;
@@ -145,11 +160,25 @@ namespace RecompPort {
         ELFIO::Elf_Half bss_section_index = (ELFIO::Elf_Half)-1;
         bool executable = false;
         bool relocatable = false;
+        bool has_mips32_relocs = false;
     };
 
     struct FunctionStats {
         std::vector<JumpTable> jump_tables;
         std::vector<AbsoluteJump> absolute_jumps;
+    };
+
+    struct ReferenceSection {
+        uint32_t rom_addr;
+        uint32_t ram_addr;
+        uint32_t size;
+        bool relocatable;
+    };
+
+    struct ReferenceSymbol {
+        uint16_t section_index;
+        uint32_t section_offset;
+        bool is_function;
     };
 
     struct Context {
@@ -166,6 +195,16 @@ namespace RecompPort {
         std::unordered_set<std::string> relocatable_sections;
         // Functions with manual size overrides
         std::unordered_map<std::string, size_t> manually_sized_funcs;
+
+        //// Reference symbols (used for populating relocations for patches)
+        // A list of the sections that contain the reference symbols.
+        std::vector<ReferenceSection> reference_sections;
+        // A list of the reference symbols.
+        std::vector<ReferenceSymbol> reference_symbols;
+        // Name of every reference symbol in the same order as `reference_symbols`.
+        std::vector<std::string> reference_symbol_names;
+        // Mapping of symbol name to reference symbol index.
+        std::unordered_map<std::string, size_t> reference_symbols_by_name;
         int executable_section_count;
 
         Context(const ELFIO::elfio& elf_file) {
@@ -178,7 +217,12 @@ namespace RecompPort {
             executable_section_count = 0;
         }
 
-        static bool from_symbol_file(const std::filesystem::path& symbol_file_path, std::vector<uint8_t>&& rom, Context& out);
+        // Imports sections and function symbols from a provided context into this context's reference sections and reference functions.
+        void import_reference_context(const Context& reference_context);
+        // Reads a data symbol file and adds its contents into this context's reference data symbols.
+        bool read_data_reference_syms(const std::filesystem::path& data_syms_file_path);
+
+        static bool from_symbol_file(const std::filesystem::path& symbol_file_path, std::vector<uint8_t>&& rom, Context& out, bool with_relocs);
 
         Context() = default;
     };
