@@ -4,7 +4,8 @@
 #include "rabbitizer.hpp"
 #include "fmt/format.h"
 
-#include "recomp_port.h"
+#include "n64recomp.h"
+#include "analysis.h"
 
 extern "C" const char* RabbitizerRegister_getNameGpr(uint8_t regValue);
 
@@ -49,7 +50,7 @@ struct RegState {
 using InstrId = rabbitizer::InstrId::UniqueId;
 using RegId = rabbitizer::Registers::Cpu::GprO32;
 
-bool analyze_instruction(const rabbitizer::InstructionCpu& instr, const RecompPort::Function& func, RecompPort::FunctionStats& stats,
+bool analyze_instruction(const rabbitizer::InstructionCpu& instr, const N64Recomp::Function& func, N64Recomp::FunctionStats& stats,
     RegState reg_states[32], std::vector<RegState>& stack_states) {
     // Temporary register state for tracking the register being operated on
     RegState temp{};
@@ -157,9 +158,11 @@ bool analyze_instruction(const rabbitizer::InstructionCpu& instr, const RecompPo
         }
         // If the base register has a valid lui state and a valid addend before this, then this may be a load from a jump table
         else if (reg_states[base].valid_lui && reg_states[base].valid_addend) {
-            // Exactly one of the lw and the base reg should have a valid lo16 value
+            // Exactly one of the lw and the base reg should have a valid lo16 value. However, the lo16 may end up just being zero by pure luck,
+            // so allow the case where the lo16 immediate is zero and the register state doesn't have a valid addiu immediate.
+            // This means the only invalid case is where they're both true.
             bool nonzero_immediate = imm != 0;
-            if (nonzero_immediate != reg_states[base].valid_addiu) {
+            if (!(nonzero_immediate && reg_states[base].valid_addiu)) {
                 uint32_t lo16;
                 if (nonzero_immediate) {
                     lo16 = (int16_t)imm;
@@ -219,8 +222,8 @@ bool analyze_instruction(const rabbitizer::InstructionCpu& instr, const RecompPo
     return true;
 }
 
-bool RecompPort::analyze_function(const RecompPort::Context& context, const RecompPort::Function& func,
-    const std::vector<rabbitizer::InstructionCpu>& instructions, RecompPort::FunctionStats& stats) {
+bool N64Recomp::analyze_function(const N64Recomp::Context& context, const N64Recomp::Function& func,
+    const std::vector<rabbitizer::InstructionCpu>& instructions, N64Recomp::FunctionStats& stats) {
     // Create a state to track each register (r0 won't be used)
     RegState reg_states[32] {};
     std::vector<RegState> stack_states{};
