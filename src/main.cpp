@@ -273,7 +273,7 @@ int main(int argc, char** argv) {
     };
 
     // TODO expose a way to dump the context from the command line.
-    bool dumping_context = false;
+    bool dumping_context = true;
 
     if (argc != 2) {
         fmt::print("Usage: {} [config file]\n", argv[0]);
