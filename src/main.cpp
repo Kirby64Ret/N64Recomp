@@ -373,7 +373,7 @@ int main(int argc, char** argv) {
                 );
             }
 
-            dump_context(context, data_syms, "dump.toml", "data_dump.toml");
+            dump_context(context, data_syms, "NK4E.syms.toml", "NK4E.datasyms.toml");
             return 0;
         }
     }
